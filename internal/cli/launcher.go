@@ -77,19 +77,16 @@ func launchClaude(d Deps, o launchOpts) int {
 	if err := d.CheckTmp(w.cfg.TmpDir, d.UID); err != nil {
 		return fail(d, usage.Errorf("%v", err))
 	}
-	if err := tmpdir.Ensure(w.cfg.TmpDir); err != nil {
-		return fail(d, err)
-	}
 	cgroup, _ := os.ReadFile(filepath.Join(d.ProcRoot, "self", "cgroup"))
+	wantScope := launch.WantScope(d.Env, string(cgroup), p.Name)
 	systemdRun := ""
-	if launch.WantScope(d.Env, string(cgroup), p.Name) {
+	if wantScope {
 		if systemdRun, err = d.LookPath("systemd-run"); err != nil {
 			return fail(d, fmt.Errorf("systemd-run: %w (set %s=1 to run without limits)", err, launch.NoCgroupEnv))
 		}
-		if err := syncSlices(d, w); err != nil {
-			return fail(d, err)
-		}
 	}
+	// Build first: usage errors (a missing NAME, an unset required variable)
+	// are reported before any side effect.
 	plan, err := launch.Build(launch.Request{
 		Env: d.Env, Profile: p, ConfigName: cfgName, Config: c, Args: o.args,
 		Claude: claude, SystemdRun: systemdRun, TmpDir: w.cfg.TmpDir,
@@ -97,6 +94,14 @@ func launchClaude(d Deps, o launchOpts) int {
 	})
 	if err != nil {
 		return fail(d, err)
+	}
+	if err := tmpdir.Ensure(w.cfg.TmpDir); err != nil {
+		return fail(d, err)
+	}
+	if wantScope {
+		if err := syncSlices(d, w); err != nil {
+			return fail(d, err)
+		}
 	}
 	for _, msg := range plan.Warnings {
 		warn(d, "%s", msg)

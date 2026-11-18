@@ -53,6 +53,27 @@ func TestConfigSymlinkLaunchesInScope(t *testing.T) {
 	}
 }
 
+func TestUsageErrorHasNoSideEffects(t *testing.T) {
+	f := newFixture(t)
+	f.profile("default", "me@example.com")
+	f.config(`{"configs": {"claude-r": {"profile": "default", "require_env": ["CP_TEST_REQUIRED"]}}}`)
+	if code := f.run("/home/u/bin/claude-r", "hello"); code != exitUsage {
+		t.Fatalf("exit %d, want %d; stderr %s", code, exitUsage, f.errb)
+	}
+	if !strings.Contains(f.errb.String(), "CP_TEST_REQUIRED") {
+		t.Errorf("stderr = %q", f.errb)
+	}
+	if len(f.runs) != 0 || len(f.execs) != 0 {
+		t.Errorf("ran %q, exec'd %d", f.runs, len(f.execs))
+	}
+	if _, err := os.Stat(filepath.Join(f.home, ".config", "systemd", "user")); !os.IsNotExist(err) {
+		t.Errorf("unit directory created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.home, ".claude-tmp")); !os.IsNotExist(err) {
+		t.Errorf("temp dir created: %v", err)
+	}
+}
+
 func TestResumeSelectsOwningProfile(t *testing.T) {
 	f := newFixture(t)
 	f.profile("default", "me@example.com")
