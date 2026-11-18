@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"maps"
@@ -213,9 +214,30 @@ func syncSlices(d Deps, w *world) error {
 		warn(d, "%s is not managed by %s; leaving it alone", f, toolName)
 	}
 	if res.Changed() {
-		return d.Run([]string{"systemctl", "--user", "daemon-reload"}, launch.EnvList(d.Env), nil, d.Stderr, d.Stderr)
+		return reloadUnits(d, res.Written)
 	}
 	return nil
+}
+
+// reloadUnits runs systemctl --user daemon-reload after unit files were
+// written. If the reload fails it removes the files just written, so the next
+// run sees them as changed and retries instead of leaving systemd stale.
+func reloadUnits(d Deps, written []string) error {
+	err := d.Run([]string{"systemctl", "--user", "daemon-reload"}, launch.EnvList(d.Env), nil, d.Stderr, d.Stderr)
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf("systemctl --user daemon-reload: %v; removed the unit files just written so the next run retries (or run systemctl --user daemon-reload yourself)", err)
+	var failed []string
+	for _, p := range written {
+		if rerr := os.Remove(p); rerr != nil && !os.IsNotExist(rerr) {
+			failed = append(failed, rerr.Error())
+		}
+	}
+	if len(failed) > 0 {
+		msg = fmt.Sprintf("systemctl --user daemon-reload: %v; could not remove the unit files just written (%s); remove them or run systemctl --user daemon-reload yourself", err, strings.Join(failed, "; "))
+	}
+	return errors.New(msg)
 }
 
 func cmdNew(args []string, d Deps) int {
@@ -249,6 +271,12 @@ func cmdNew(args []string, d Deps) int {
 // createProfile makes ~/.claude-<name> and runs Claude's own login in it. No
 // credentials are copied from anywhere.
 func createProfile(d Deps, w *world, name, account string) error {
+	if _, ok := profile.Find(w.profiles, name); ok {
+		return usage.Errorf("profile %q already exists", name)
+	}
+	if slices.Contains(w.cfg.IgnoreProfiles, name) {
+		return usage.Errorf("profile %q is in ignore_profiles in config.json", name)
+	}
 	claude, err := launch.ResolveClaude(w.cfg.ClaudePath, d.Env["PATH"], d.Self)
 	if err != nil {
 		return err

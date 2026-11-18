@@ -177,3 +177,71 @@ func TestNewProfileLoginFails(t *testing.T) {
 		t.Errorf("the empty profile directory was left behind: %v", err)
 	}
 }
+
+func TestFailedReloadRemovesUnitsAndRetries(t *testing.T) {
+	f := newFixture(t)
+	f.profile("default", "me@example.com")
+	ws := f.profile("west-corp", "c@example.com")
+	_ = ws
+	f.config(`{"configs": {"c1": {"profile": "west-corp"}}}`)
+	unit := filepath.Join(f.home, ".config", "systemd", "user", `claude-west\x2dcorp.slice`)
+
+	f.d.Run = func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		f.runs = append(f.runs, argv)
+		if slices.Equal(argv, reload) {
+			return errors.New("exit status 1")
+		}
+		return nil
+	}
+	if code := f.run("c1"); code != exitFail || len(f.execs) != 0 {
+		t.Fatalf("exit %d, %d execs; stderr %s", code, len(f.execs), f.errb)
+	}
+	if !strings.Contains(f.errb.String(), "daemon-reload") {
+		t.Errorf("stderr = %q", f.errb.String())
+	}
+	if _, err := os.Stat(unit); !os.IsNotExist(err) {
+		t.Errorf("unit file left behind after failed reload: %v", err)
+	}
+
+	f.d.Run = func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		f.runs = append(f.runs, argv)
+		return nil
+	}
+	f.runs = nil
+	f.run("c1")
+	if len(f.execs) != 1 {
+		t.Fatalf("second launch did not exec; stderr %s", f.errb)
+	}
+	if _, err := os.Stat(unit); err != nil {
+		t.Errorf("unit not rewritten: %v", err)
+	}
+	if !slices.ContainsFunc(f.runs, func(a []string) bool { return slices.Equal(a, reload) }) {
+		t.Errorf("no daemon-reload in %q", f.runs)
+	}
+}
+
+func TestNewRejectsExtraAndIgnoredNames(t *testing.T) {
+	f := newFixture(t)
+	f.profile("default", "me@example.com")
+	far := filepath.Join(f.root, "far-dir")
+	if err := os.MkdirAll(far, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.config(`{"extra_profiles": {"far": "` + far + `"}, "ignore_profiles": ["old"]}`)
+	logins := 0
+	f.d.Run = func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		logins++
+		return nil
+	}
+	for _, name := range []string{"far", "old"} {
+		if code := f.run("claude-profile", "new", name); code != exitUsage {
+			t.Errorf("new %s: exit %d, want %d; stderr %s", name, code, exitUsage, f.errb)
+		}
+		if _, err := os.Stat(filepath.Join(f.home, ".claude-"+name)); !os.IsNotExist(err) {
+			t.Errorf("~/.claude-%s was created: %v", name, err)
+		}
+	}
+	if logins != 0 {
+		t.Errorf("login ran %d times", logins)
+	}
+}
