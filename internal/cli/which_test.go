@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,5 +49,40 @@ func TestWhichPID(t *testing.T) {
 	}
 	if !strings.HasPrefix(f.out.String(), "default\tme@example.com\t-\t") {
 		t.Errorf("which 77 = %q", f.out.String())
+	}
+}
+
+func TestWhichJSONKeys(t *testing.T) {
+	f := newFixture(t)
+	f.profile("default", "me@example.com")
+	work := f.profile("work", "c@example.com")
+	f.write(filepath.Join(work, "projects", "-src", sid+".jsonl"), "{}\n", 0o644)
+	f.write(filepath.Join(f.root, "proc", "4242", "environ"), "CLAUDE_CONFIG_DIR="+work+"\x00", 0o644)
+	f.write(filepath.Join(work, "sessions", "4242.json"), `{"pid":4242,"sessionId":"`+sid+`"}`, 0o644)
+	f.write(filepath.Join(f.root, "proc", "77", "environ"), "HOME=/h\x00", 0o644)
+
+	decode := func(arg string) map[string]any {
+		t.Helper()
+		if got := f.run("claude-profile", "which", "--json", arg); got != exitOK {
+			t.Fatalf("which %s: exit %d: %s", arg, got, f.errb)
+		}
+		var rows []map[string]any
+		if err := json.Unmarshal(f.out.Bytes(), &rows); err != nil || len(rows) != 1 {
+			t.Fatalf("which %s: %v in %s", arg, err, f.out)
+		}
+		return rows[0]
+	}
+	cases := []struct {
+		arg  string
+		want []string
+	}{
+		{sid, []string{"account", "config_dir", "profile", "session_id", "transcript"}},
+		{"4242", []string{"account", "config_dir", "pid", "profile", "session_id"}},
+		{"77", []string{"account", "config_dir", "pid", "profile"}}, // no registry entry: session_id omitted
+	}
+	for _, tc := range cases {
+		if got := keys(decode(tc.arg)); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("which %s keys = %q, want %q", tc.arg, got, tc.want)
+		}
 	}
 }
