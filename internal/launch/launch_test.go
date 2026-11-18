@@ -234,3 +234,21 @@ func TestResolveClaude(t *testing.T) {
 		t.Errorf("ResolveClaude(missing) err = %v, want a usage error", err)
 	}
 }
+
+func TestResolveClaudeRejectsConfiguredSelf(t *testing.T) {
+	root := t.TempDir()
+	self := filepath.Join(root, "claude-profile")
+	if err := os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "claude")
+	if err := os.Symlink(self, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, configured := range []string{self, link} {
+		_, err := ResolveClaude(configured, "", self)
+		if !usage.Is(err) || !strings.Contains(err.Error(), "is claude-profile itself") {
+			t.Errorf("ResolveClaude(%s) err = %v, want a usage error naming claude-profile itself", configured, err)
+		}
+	}
+}

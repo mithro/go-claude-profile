@@ -136,6 +136,9 @@ func ResolveClaude(configured, pathEnv, self string) (string, error) {
 		if !isExecutable(configured) {
 			return "", usage.Errorf("claude_path %s is not an executable file", configured)
 		}
+		if r, err := filepath.EvalSymlinks(configured); err == nil && r == self {
+			return "", usage.Errorf("claude_path %s is claude-profile itself", configured)
+		}
 		return configured, nil
 	}
 	for _, dir := range filepath.SplitList(pathEnv) {
