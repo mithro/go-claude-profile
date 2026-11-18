@@ -157,6 +157,9 @@ func Choose(groups []Group, br *bufio.Reader, w io.Writer, note, def string) (It
 		}
 		line, err := br.ReadString('\n')
 		ans := strings.TrimSpace(line)
+		if err != nil && ans == "" {
+			return Item{}, ErrCancelled // EOF or a read error is not a choice, not even the default
+		}
 		switch {
 		case ans == "q":
 			return Item{}, ErrCancelled

@@ -69,6 +69,7 @@ func TestChoose(t *testing.T) {
 		{"x\n0\n99\n5\n", "", "profile:default"},
 		{"q\n", "", "cancel"},
 		{"", "", "cancel"},
+		{"", "profile:default", "cancel"}, // EOF must not pick the default
 		{"\n", "", "cancel"},
 	}
 	for _, tc := range cases {
