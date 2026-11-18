@@ -67,7 +67,8 @@ argument to Claude. If the name is a config's name, that config is used.
 3. For `--resume <id>`, `--resume=<id>` or `-r <id>`: the profile that owns
    that session, by UUID or by session name.
 4. `CLAUDE_PROFILE` inherited from the environment (a launch from inside a
-   wrapped session).
+   wrapped session), used only when no profile or config was chosen by 1 or
+   2 and the arguments do not name a session to resume (3).
 5. The menu. Without a terminal, the launch stops with an error listing the
    profiles.
 
@@ -154,6 +155,8 @@ Limits accept `CPUQuota`, `CPUWeight`, `MemoryHigh`, `MemoryMax`,
   Programs that hard-code `/tmp` are not stopped, but tmpfs pages count
   against the session's memory limit, so they cannot grow without bound. A
   user `tmpfiles.d` rule removes entries untouched for 14 days.
+  `setup install` enables the user `systemd-tmpfiles-clean.timer` that
+  applies that rule, and `doctor` checks that the timer is active.
 - **Session names.** Claude Code records a session's name in its transcript
   (`custom-title` and `agent-name` records, repeated every turn). The lookup
   reads the registry of running sessions, then the last 256 KiB of each
@@ -164,10 +167,15 @@ Limits accept `CPUQuota`, `CPUWeight`, `MemoryHigh`, `MemoryMax`,
 
 - Every wrapped Claude has `CLAUDE_PROFILE=<name>` in its environment.
 - `claude-profile which --json <uuid|name|pid>` prints a list of
-  `{"profile", "config_dir", "account", "session_id", "transcript", "pid"}`
-  (empty fields omitted).
+  objects. `profile`, `config_dir` and `account` are always present (an empty
+  string when unknown); `session_id`, `transcript` and `pid` are omitted when
+  empty. `pid` appears only for a PID lookup, `transcript` only for a
+  UUID or name lookup.
 - `claude-profile list --json` prints
-  `{"accounts": [...], "profiles": [{"name", "dir", "default", "account", "expected_account", "logged_in", "note"}], "configs": [{"name", "profile"}]}`.
+  `{"accounts": [...], "profiles": [...], "configs": [...]}`, all three
+  always present. Each profile has `name`, `dir`, `default`, `account` and
+  `logged_in` always, and `expected_account` and `note` only when non-empty.
+  Each config is `{"name", "profile"}`.
 - `claude-profile run --profile <p> -- --resume <id>` resumes in a known
   profile.
 
