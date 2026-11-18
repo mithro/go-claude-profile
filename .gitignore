@@ -1,0 +1,22 @@
+# Binaries and test output
+*.exe
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Local build output
+/claude-profile
+/dist/
+
+# Worktrees and scratch
+.worktrees/
+.superpowers/
+tmp/
+__pycache__/
+.env
