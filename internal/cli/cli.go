@@ -4,13 +4,21 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
+	"github.com/mithro/go-claude-profile/internal/config"
+	"github.com/mithro/go-claude-profile/internal/profile"
+	"github.com/mithro/go-claude-profile/internal/tmpdir"
 	"github.com/mithro/go-claude-profile/internal/usage"
 )
 
@@ -29,13 +37,55 @@ const (
 // Deps is everything the program touches outside its own memory.
 type Deps struct {
 	Env    map[string]string
+	UID    int
+	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	// Self is this executable's absolute, symlink-resolved path.
+	Self string
+	// ProcRoot is /proc; CgroupRoot is /sys/fs/cgroup.
+	ProcRoot   string
+	CgroupRoot string
+	// Exec replaces the process image; it returns only on failure.
+	Exec func(path string, argv, env []string) error
+	// Run runs a command to completion.
+	Run func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error
+	// LookPath finds a program on the process's PATH.
+	LookPath func(name string) (string, error)
+	// OpenTTY opens the controlling terminal to read menu answers.
+	OpenTTY func() (io.ReadCloser, error)
+	// CheckTmp validates the temp directory.
+	CheckTmp func(dir string, uid int) error
 }
 
 // OSDeps returns the real process's dependencies.
 func OSDeps() Deps {
-	return Deps{Env: envMap(os.Environ()), Stdout: os.Stdout, Stderr: os.Stderr}
+	self, err := os.Executable()
+	if err == nil {
+		if r, err := filepath.EvalSymlinks(self); err == nil {
+			self = r
+		}
+	}
+	return Deps{
+		Env:        envMap(os.Environ()),
+		UID:        os.Getuid(),
+		Stdin:      os.Stdin,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		Self:       self,
+		ProcRoot:   "/proc",
+		CgroupRoot: "/sys/fs/cgroup",
+		Exec:       syscall.Exec,
+		Run: func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+			cmd := exec.Command(argv[0], argv[1:]...)
+			cmd.Env = env
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
+			return cmd.Run()
+		},
+		LookPath: exec.LookPath,
+		OpenTTY:  func() (io.ReadCloser, error) { return os.Open("/dev/tty") },
+		CheckTmp: tmpdir.Check,
+	}
 }
 
 func envMap(environ []string) map[string]string {
@@ -114,4 +164,55 @@ func fail(d Deps, err error) int {
 
 func warn(d Deps, format string, a ...any) {
 	fmt.Fprintf(d.Stderr, "%s: warning: %s\n", toolName, fmt.Sprintf(format, a...))
+}
+
+// world is the configuration and the discovered profiles.
+type world struct {
+	home     string
+	cfg      *config.File
+	profiles []profile.Profile
+}
+
+func load(d Deps) (*world, error) {
+	home := d.Env["HOME"]
+	if home == "" {
+		return nil, errors.New("HOME is not set")
+	}
+	cfg, err := config.Load(config.Path(d.Env, home), home)
+	if err != nil {
+		return nil, usage.Errorf("%v", err)
+	}
+	ps, err := profile.Discover(home, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &world{home: home, cfg: cfg, profiles: ps}, nil
+}
+
+// parseFlags parses args; when ok is false, return code.
+func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK, false
+		}
+		return exitUsage, false
+	}
+	return 0, true
+}
+
+func writeJSON(d Deps, v any) int {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fail(d, err)
+	}
+	fmt.Fprintf(d.Stdout, "%s\n", data)
+	return exitOK
+}
+
+func profileNames(ps []profile.Profile) []string {
+	names := make([]string, 0, len(ps))
+	for _, p := range ps {
+		names = append(names, p.Name)
+	}
+	return names
 }
