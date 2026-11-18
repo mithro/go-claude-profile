@@ -1,11 +1,18 @@
 package cli
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+)
+
+var (
+	enableTimer = []string{"systemctl", "--user", "enable", "--now", "systemd-tmpfiles-clean.timer"}
+	timerActive = []string{"systemctl", "--user", "is-active", "--quiet", "systemd-tmpfiles-clean.timer"}
 )
 
 func TestSetupInstallStatusUninstall(t *testing.T) {
@@ -36,9 +43,23 @@ func TestSetupInstallStatusUninstall(t *testing.T) {
 		t.Errorf("no daemon-reload in %q", f.runs)
 	}
 
+	if !slices.ContainsFunc(f.runs, func(a []string) bool { return slices.Equal(a, enableTimer) }) {
+		t.Errorf("no timer enable in %q", f.runs)
+	}
+
 	f.runs = nil
-	if code := f.run("claude-profile", "setup", "install"); code != exitOK || len(f.runs) != 0 {
-		t.Errorf("second install: exit %d, runs %q", code, f.runs)
+	if code := f.run("claude-profile", "setup", "install"); code != exitOK {
+		t.Errorf("second install: exit %d", code)
+	}
+	if slices.ContainsFunc(f.runs, func(a []string) bool { return slices.Equal(a, reload) }) {
+		t.Errorf("second install repeated daemon-reload: %q", f.runs)
+	}
+	if !strings.Contains(f.out.String(), "enabled  systemd-tmpfiles-clean.timer") {
+		t.Errorf("install output lacks timer report: %q", f.out)
+	}
+	f.runs = nil
+	if code := f.run("claude-profile", "setup", "status"); code != exitOK || len(f.runs) != 0 {
+		t.Errorf("status: exit %d, runs %q", code, f.runs)
 	}
 	if code := f.run("claude-profile", "setup", "status"); code != exitOK {
 		t.Errorf("status after install: exit %d: %s", code, f.out)
@@ -52,6 +73,24 @@ func TestSetupInstallStatusUninstall(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(f.home, "bin", "claude-w")); !os.IsNotExist(err) {
 		t.Errorf("link still there: %v", err)
+	}
+}
+
+func TestSetupInstallFailsWhenTimerEnableFails(t *testing.T) {
+	f := newFixture(t)
+	f.profile("default", "me@example.com")
+	f.d.Run = func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		f.runs = append(f.runs, argv)
+		if slices.Equal(argv, enableTimer) {
+			return errors.New("boom")
+		}
+		return nil
+	}
+	if code := f.run("claude-profile", "setup", "install"); code != exitFail {
+		t.Errorf("exit %d, want %d", code, exitFail)
+	}
+	if !strings.Contains(f.errb.String(), "systemd-tmpfiles-clean.timer") {
+		t.Errorf("stderr = %q", f.errb)
 	}
 }
 
@@ -86,6 +125,33 @@ func TestDoctor(t *testing.T) {
 		t.Fatalf("doctor with problems: exit %d", code)
 	}
 	for _, want := range []string{"FAIL  profile work: logged in as c@example.com, expected w@example.com", `FAIL  config claude-w: names profile "gone"`} {
+		if !strings.Contains(f.out.String(), want) {
+			t.Errorf("doctor output lacks %q:\n%s", want, f.out)
+		}
+	}
+}
+
+func TestDoctorFailsWhenTmpfilesTimerInactive(t *testing.T) {
+	f := newFixture(t)
+	f.profile("default", "me@example.com")
+	f.write(filepath.Join(f.root, "cgroup", "user.slice", "user-1000.slice", "user@1000.service", "cgroup.controllers"), "cpu memory pids\n", 0o644)
+	f.run("claude-profile", "setup", "install")
+	if code := f.run("claude-profile", "doctor"); code != exitOK {
+		t.Fatalf("doctor: exit %d:\n%s", code, f.out)
+	}
+	if !slices.ContainsFunc(f.runs, func(a []string) bool { return slices.Equal(a, timerActive) }) {
+		t.Errorf("no is-active check in %q", f.runs)
+	}
+	f.d.Run = func(argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		if slices.Equal(argv, timerActive) {
+			return errors.New("inactive")
+		}
+		return nil
+	}
+	if code := f.run("claude-profile", "doctor"); code != exitFail {
+		t.Fatalf("doctor: exit %d, want %d", code, exitFail)
+	}
+	for _, want := range []string{"FAIL  tmpfiles cleanup timer", "run: systemctl --user enable --now systemd-tmpfiles-clean.timer"} {
 		if !strings.Contains(f.out.String(), want) {
 			t.Errorf("doctor output lacks %q:\n%s", want, f.out)
 		}

@@ -48,6 +48,12 @@ func cmdDoctor(args []string, d Deps) int {
 	check("cgroup controllers delegated", checkControllers(d))
 	check("temp directory "+w.cfg.TmpDir, d.CheckTmp(w.cfg.TmpDir, d.UID))
 	check("slice units", checkSlices(d, w))
+	if err := d.Run([]string{"systemctl", "--user", "is-active", "--quiet", tmpfilesTimer},
+		launch.EnvList(d.Env), nil, d.Stdout, d.Stdout); err != nil {
+		check("tmpfiles cleanup timer", fmt.Errorf("%w (run: %s)", err, strings.Join(tmpfilesTimerEnable, " ")))
+	} else {
+		check("tmpfiles cleanup timer", nil)
+	}
 	for _, p := range w.profiles {
 		switch {
 		case p.Mismatch():

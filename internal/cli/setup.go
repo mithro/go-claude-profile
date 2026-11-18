@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mithro/go-claude-profile/internal/launch"
 	"github.com/mithro/go-claude-profile/internal/managed"
@@ -10,6 +11,10 @@ import (
 	"github.com/mithro/go-claude-profile/internal/tmpdir"
 	"github.com/mithro/go-claude-profile/internal/usage"
 )
+
+const tmpfilesTimer = "systemd-tmpfiles-clean.timer"
+
+var tmpfilesTimerEnable = []string{"systemctl", "--user", "enable", "--now", tmpfilesTimer}
 
 func init() {
 	register(command{"setup", "manage per-user files: setup install|status|uninstall", cmdSetup})
@@ -81,6 +86,12 @@ func setupApply(d Deps, w *world, dryRun bool) int {
 		if err := reloadUnits(d, units.Written); err != nil {
 			return fail(d, err)
 		}
+	}
+	if !dryRun {
+		if err := d.Run(tmpfilesTimerEnable, launch.EnvList(d.Env), nil, d.Stderr, d.Stderr); err != nil {
+			return fail(d, fmt.Errorf("%s: %w", strings.Join(tmpfilesTimerEnable, " "), err))
+		}
+		fmt.Fprintf(d.Stdout, "%-8s %s\n", "enabled", tmpfilesTimer)
 	}
 	bad := len(units.Foreign)+len(rule.Foreign)+len(links.Foreign) > 0
 	if dryRun && (units.Changed() || rule.Changed() || len(links.Created) > 0) {
