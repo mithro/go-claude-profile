@@ -231,11 +231,17 @@ stops with a usage error listing the profiles.
   with `EvalSymlinks` and attributed to the profile whose real directory
   contains it, so the back-symlinks under `~/.claude/projects` point at their
   true owners. Hits that resolve to the same file count once.
-- Name: match against `name` in each profile's `sessions/*.json` registry,
-  then against names recorded in transcripts. How Claude records names for
-  sessions that are not running is to be established by reading real
-  transcripts during implementation; the lookup is isolated in one function
-  with fixtures for whatever is found.
+- Name: match against `name` in each profile's `sessions/*.json` registry
+  (running sessions), then against the names recorded in transcripts.
+  Claude Code writes a session's name into its transcript as
+  `{"type":"custom-title","customTitle":"<name>","sessionId":"<uuid>"}` and
+  `{"type":"agent-name","agentName":"<name>","sessionId":"<uuid>"}` records,
+  repeated with every turn, so the last one in the file is the current name
+  (checked 2026-11-19 against `ac-issues`, `bl-coordinator` and a
+  `/rename`d session on Claude Code 2.1.327). Only the last 256 KiB of each
+  transcript is read, to keep a lookup across thousands of transcripts fast;
+  a session whose newest name record is further back than that is not found
+  by name, and the launch falls to the menu.
 - One owning profile: use it. None, or more than one: fall to the menu and
   list the candidates above it. With no terminal, stop with a usage error.
 
