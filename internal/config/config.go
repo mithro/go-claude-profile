@@ -146,6 +146,9 @@ func (f *File) validate() error {
 		if !configNameRE.MatchString(name) || name == "claude-profile" {
 			return fmt.Errorf("configs: invalid config name %q", name)
 		}
+		if name == "claude" {
+			return fmt.Errorf("configs: %q is not allowed: setup never creates a `claude` symlink, so a `claude` launcher has to be linked by hand", name)
+		}
 		if c.Profile == "" {
 			return fmt.Errorf("configs.%s: profile is required", name)
 		}

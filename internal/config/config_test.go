@@ -82,6 +82,7 @@ func TestLoadRejects(t *testing.T) {
 		"reserved name":     {`{"profiles": {"tmp": {}}}`, `"tmp" is reserved`},
 		"extra default":     {`{"extra_profiles": {"default": "/x"}}`, "cannot be redefined"},
 		"config name":       {`{"configs": {"claude-profile": {"profile": "default"}}}`, "invalid config name"},
+		"config claude":     {`{"configs": {"claude": {"profile": "default"}}}`, "never creates a `claude` symlink"},
 		"config no profile": {`{"configs": {"c": {}}}`, "profile is required"},
 		"name_arg env":      {`{"configs": {"c": {"profile": "default", "name_arg": {"prefix": "x-"}}}}`, "name_arg.env is required"},
 		"env name":          {`{"configs": {"c": {"profile": "default", "env": {"A=B": "x"}}}}`, "invalid environment variable name"},
