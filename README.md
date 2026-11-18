@@ -27,6 +27,9 @@ sudo apt install claude-profile
 The suites are `trixie`, `forky` and `sid`, plus `raspbian-trixie` and
 `raspbian-forky`; use the one matching your system in the `deb` line.
 
+The repository's signing key has the fingerprint
+`6A47 8172 4FC0 437B 3E27  FD1B 3CB5 E140 AE63 2FE8`.
+
 `claude-profile version` prints the version without the suite suffix.
 
 Every push to `main` is a build: it publishes the packages to the apt
