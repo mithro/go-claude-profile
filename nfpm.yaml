@@ -1,0 +1,36 @@
+# nfpm packaging config — https://nfpm.goreleaser.com/configuration/
+# VERSION and ARCH are expanded from the environment by nfpm at package time
+# (nfpm does not expand them inside contents[].src, so the binary is always
+# packaged from the fixed path ./dist/claude-profile — build it there first):
+#   VERSION=0.1.post3~deb13 ARCH=amd64 nfpm package -p deb -f nfpm.yaml -t dist/
+# deb.yml gets VERSION from mithro/apt-repo-action's deb-version action.
+name: claude-profile
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+# Keep the Debian version exactly as given (0.1.post3~deb13); without this
+# nfpm re-renders it as semver.
+version_schema: none
+section: utils
+priority: optional
+maintainer: Tim 'mithro' Ansell <me@mith.ro>
+description: |
+  Launch Claude Code in per-account profiles.
+  Picks the Claude Code config directory (and so the account) for a launch,
+  including the one that owns a --resume session, applies named launch
+  presets, runs Claude inside a resource-limited systemd user scope, and
+  points its temp files at disk instead of a RAM-backed /tmp.
+vendor: mithro
+homepage: https://github.com/mithro/go-claude-profile
+license: Apache-2.0
+depends:
+  - systemd
+contents:
+  - src: ./dist/claude-profile
+    dst: /usr/bin/claude-profile
+    file_info:
+      mode: 0755
+  - src: ./README.md
+    dst: /usr/share/doc/claude-profile/README.md
+  - src: ./LICENSE
+    dst: /usr/share/doc/claude-profile/copyright
